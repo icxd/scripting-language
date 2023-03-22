@@ -1,0 +1,8 @@
+/target
+/.vscode
+Cargo.lock
+*.exe
+*.c
+c_notes.md
+*.o
+/c-testing
