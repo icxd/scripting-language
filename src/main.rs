@@ -482,6 +482,7 @@ impl Lexer {
     Annotation(String, Vec<(String, Type)>, TokenLocation),
     Struct(String, Vec<(String, Type)>, TokenLocation),
     Enum(String, Type, Vec<(String, Expression, TokenLocation)>, TokenLocation),
+    StructEnum(String, Vec<(String, Vec<(String, Type)>)>, TokenLocation),
     TypeAlias(String, Vec<Type>, TokenLocation),
     Function(String, Vec<(String, Type)>, Type, Vec<Statement>, TokenLocation),
     StructFunction(String, String, Vec<(String, Type)>, Type, Vec<Statement>, TokenLocation),
@@ -503,6 +504,7 @@ impl Statement {
             Statement::Annotation(_, _, location) => location.clone(),
             Statement::Struct(_, _, location) => location.clone(),
             Statement::Enum(_, _, _, location) => location.clone(),
+            Statement::StructEnum(_, _, location) => location.clone(),
             Statement::TypeAlias(_, _, location) => location.clone(),
             Statement::Function(_, _, _, _, location) => location.clone(),
             Statement::StructFunction(_, _, _, _, _, location) => location.clone(),
@@ -547,6 +549,7 @@ impl Statement {
     AddressOf(Box<Expression>, TokenLocation),
     Dereference(Box<Expression>, TokenLocation),
     Range(Box<Expression>, Box<Expression>, TokenLocation),
+    Type(Type, TokenLocation),
 
     Error(Error),
     Empty,
@@ -577,6 +580,7 @@ impl Expression {
             Expression::AddressOf(_, location) => location.clone(),
             Expression::Dereference(_, location) => location.clone(),
             Expression::Range(_, _, location) => location.clone(),
+            Expression::Type(_, location) => location.clone(),
 
             Expression::Error(error) => match error {
                 Error::SyntaxError(_, location) => location.clone(),
@@ -770,6 +774,33 @@ impl Parser {
         self.expect(TokenKind::Enum);
         let location: TokenLocation = self.current().location().clone();
         let name: String = self.expect(TokenKind::Identifier).value;
+        if self.current().kind == TokenKind::Newline {
+            self.expect(TokenKind::Newline);
+            let mut values: Vec<(String, Vec<(String, Type)>)> = vec![];
+            while self.current().kind != TokenKind::End {
+                if self.current().kind == TokenKind::Newline {
+                    self.advance();
+                    continue;
+                }
+                let value_name: String = self.expect(TokenKind::Identifier).value;
+                self.expect(TokenKind::OpenParen);
+                let mut value_fields: Vec<(String, Type)> = vec![];
+                while self.current().kind != TokenKind::CloseParen {
+                    let field_name: String = self.expect(TokenKind::Identifier).value;
+                    self.expect(TokenKind::Colon);
+                    let field_type: Type = self.parse_type();
+                    value_fields.push((field_name, field_type));
+                    if self.current().kind == TokenKind::Comma {
+                        self.expect(TokenKind::Comma);
+                    }
+                }
+                self.expect(TokenKind::CloseParen);
+                self.expect(TokenKind::Newline);
+                values.push((value_name, value_fields));
+            }
+            self.expect(TokenKind::End);
+            return Statement::StructEnum(name, values, location);
+        }
         self.expect(TokenKind::Colon);
         let enum_type: Type = self.parse_type();
         self.expect(TokenKind::Newline);
@@ -1065,16 +1096,56 @@ impl Parser {
         }
     }
     fn parse_index(&mut self) -> Expression {
+        let location: TokenLocation = self.current().location().clone();
         let mut expression: Expression = self.parse_member();
+        let mut indices: Vec<Expression> = Vec::new();
+        let mut is_generic: bool = false;
         while self.current().kind == TokenKind::OpenBracket {
-            let location: TokenLocation = self.current().location().clone();
             self.expect(TokenKind::OpenBracket);
-            let index: Expression = self.parse_expression();
+            while self.current().kind != TokenKind::CloseBracket {
+                indices.push(self.parse_expression());
+                if self.current().kind == TokenKind::Comma {
+                    self.expect(TokenKind::Comma);
+                }
+            }
             self.expect(TokenKind::CloseBracket);
-            expression = Expression::Index(Box::new(expression), Box::new(index), location);
+            if indices.len() == 1 {
+                expression = Expression::Index(Box::new(expression), Box::new(indices[0].clone()), location.clone());
+            } else {
+                is_generic = true;
+                break;
+            }
         }
-        if self.current().kind == TokenKind::OpenParen {
-            // TODO: parse generic function call
+        if self.current().kind == TokenKind::OpenParen || is_generic {
+            expression = match expression {
+                Expression::Index(identifier, _, _) => *identifier,
+                _ => panic!("Invalid index call"),
+            };
+            self.expect(TokenKind::OpenParen);
+            let mut arguments: Vec<Expression> = Vec::new();
+            if self.current().kind != TokenKind::CloseParen {
+                arguments.push(self.parse_expression());
+                while self.current().kind == TokenKind::Comma {
+                    self.expect(TokenKind::Comma);
+                    arguments.push(self.parse_expression());
+                }
+            }
+            self.expect(TokenKind::CloseParen);
+            let mut types: Vec<Type> = Vec::new();
+            for argument in indices.iter() {
+                types.push(match argument {
+                    Expression::Type(t, _) => t.clone(),
+                    _ => panic!("Invalid argument type"),
+                });
+            }
+            expression = Expression::GenericCall(match expression {
+                Expression::Identifier(name, _) => name,
+                Expression::Member(_, name, _) => match *name {
+                    Expression::Identifier(name, _) => name,
+                    _ => panic!("Invalid member call"),
+                },
+                _ => panic!("Invalid call"),
+            }, types, arguments, location);
         }
         expression
     }
@@ -1108,7 +1179,7 @@ impl Parser {
     }
     fn parse_call(&mut self) -> Expression {
         let mut expression: Expression = self.parse_primary();
-        while self.current().kind == TokenKind::OpenParen || self.current().kind == TokenKind::OpenBracket {
+        while self.current().kind == TokenKind::OpenParen {
             let location: TokenLocation = self.current().location().clone();
             self.expect(TokenKind::OpenParen);
             let mut args: Vec<Expression> = vec![];
@@ -1213,6 +1284,11 @@ impl Parser {
             TokenKind::Null => {
                 self.expect(TokenKind::Null);
                 Expression::Null
+            }
+            TokenKind::Int | TokenKind::String | TokenKind::CString | TokenKind::Char | TokenKind::Usize => {
+                let location: TokenLocation = self.current().location().clone();
+                let t: Type = self.parse_type();
+                Expression::Type(t, location)
             }
             _ => Expression::Error(Error::SyntaxError(format!("expected Expression, but got {:?}", self.current().kind), self.clone().current().location()))
         }
@@ -1352,6 +1428,9 @@ impl Parser {
     struct_fields: HashMap<String, Vec<(String, Type)>>,
     struct_functions: HashMap<String, Vec<String>>,
     enums: Vec<String>,
+    struct_enums: HashMap<String, Vec<String>>,
+    variable_struct_enum_variant: HashMap<String, String>,
+    current_variable_struct_enum_variant: Option<String>,
     type_aliases: Vec<String>,
     variable_types: HashMap<String, Type>,
     parameter_types: HashMap<String, Type>,
@@ -1369,6 +1448,9 @@ impl Codegen {
             struct_fields: HashMap::new(),
             struct_functions: HashMap::new(),
             enums: vec![],
+            struct_enums: HashMap::new(),
+            variable_struct_enum_variant: HashMap::new(),
+            current_variable_struct_enum_variant: None,
             type_aliases: vec![],
             variable_types: HashMap::new(),
             parameter_types: HashMap::new(),
@@ -1400,6 +1482,7 @@ impl Codegen {
             Statement::Inline(statement, _) => self.codegen_inline(statement),
             Statement::Struct(name, fields, _) => self.codegen_struct(name, fields),
             Statement::Enum(name, enum_type, variants, _) => self.codegen_enum(name, enum_type, variants),
+            Statement::StructEnum(name, values, _) => self.codegen_struct_enum(name, values),
             Statement::TypeAlias(name, t, _) => self.codegen_type_alias(name, t),
             Statement::Function(name, args, return_type, body, _) => self.codegen_function(name, args, return_type, body),
             Statement::StructFunction(struct_name, name, args, return_type, body, _) => self.codegen_struct_function(struct_name, name, args, return_type, body),
@@ -1594,6 +1677,33 @@ impl Codegen {
         self.enums.push(name.clone());
         code
     }
+    fn codegen_struct_enum(&mut self, name: &String, values: &Vec<(String, Vec<(String, Type)>)>) -> String {
+        let mut code: String = String::new();
+        code.push_str(&format!("enum __{}_Type {{", name));
+        for (variant_name, _) in values.iter() {
+            code.push_str(&format!("__{}_Type_{}, ", name, variant_name));
+        }
+        code.push_str("};\n");
+        let mut enum_values: Vec<String> = Vec::new();
+        for (variant_name, variant_fields) in values.iter() {
+            enum_values.push(variant_name.clone());
+            code.push_str(&format!("struct __{}_{} {{ ", name, variant_name));
+            for (field_name, field_type) in variant_fields.iter() {
+                code.push_str(&format!("{} {}; ", self.codegen_type(field_type), field_name));
+            }
+            code.push_str("};\n");
+        }
+        code.push_str(&format!("struct {} {{\n", name));
+        code.push_str(&format!("enum __{}_Type type;\n", name));
+        code.push_str(&format!("union {{ "));
+        for (variant_name, _) in values.iter() {
+            code.push_str(&format!("struct __{}_{} {}; ", name, variant_name, variant_name));
+        }
+        code.push_str(&format!("}};\n"));
+        code.push_str(&format!("}};\n"));
+        self.struct_enums.insert(name.clone(), enum_values);
+        code
+    }
     fn codegen_type_alias(&mut self, name: &String, types: &Vec<Type>) -> String {
         let mut code: String = String::new();
         code.push_str(&format!("typedef "));
@@ -1668,6 +1778,7 @@ impl Codegen {
     }
     fn codegen_variable(&mut self, name: &String, t: &Type, value: &Expression) -> String {
         self.variable_types.insert(name.clone(), t.clone());
+        self.current_variable_struct_enum_variant = Some(name.clone());
         let mut code: String = String::new();
         if let Type::Array(type_, size, _) = t {
             code.push_str(&format!("{} {}[{}]", self.codegen_type(type_), name, self.codegen_expression(size)));
@@ -1689,6 +1800,7 @@ impl Codegen {
         } else {
             code.push_str(&format!(" = {};\n", self.codegen_expression(value)));
         }
+        self.current_variable_struct_enum_variant = None;
         code
     }
     fn codegen_constant(&mut self, name: &String, t: &Type, value: &Expression) -> String {
@@ -1755,6 +1867,8 @@ impl Codegen {
                     format!("struct {}", name)
                 } else if self.enums.contains(name) {
                     format!("enum {}", name)
+                } else if self.struct_enums.contains_key(name) {
+                    format!("struct {}", name)
                 } else if self.type_aliases.contains(name) {
                     name.clone()
                 } else if self.generic_type_names.contains(name) {
@@ -1831,7 +1945,6 @@ impl Codegen {
                 }
                 code
             }
-
             Expression::Member(expression, member, _) => {
                 match &**expression {
                     Expression::Identifier(name, _) => {
@@ -1851,6 +1964,15 @@ impl Codegen {
                                 match t {
                                     Type::Pointer(_, _) => {
                                         format!("{}->{}", self.codegen_expression(expression), self.codegen_expression(member))
+                                    }
+                                    Type::Unknown(_name, _) => {
+                                        if self.struct_enums.contains_key(_name) {
+                                            let variant: String = self.variable_struct_enum_variant.get(name).unwrap().clone();
+                                            format!("{}.{}.{}", self.codegen_expression(expression), variant, self.codegen_expression(member))
+                                        } else {
+                                            self.errors.push(Error::RuntimeError("Invalid member access".to_string(), expression.location().clone()));
+                                            "".to_string()
+                                        }
                                     }
                                     _ => {
                                         self.errors.push(Error::RuntimeError("Invalid member access".to_string(), expression.location().clone()));
@@ -1904,6 +2026,29 @@ impl Codegen {
                                 }
                                 Expression::Identifier(member, _) => {
                                     format!("__{}_values[{}]", name, member)
+                                }
+                                _ => {
+                                    self.errors.push(Error::RuntimeError("Invalid enum member access".to_string(), expression.location().clone()));
+                                    "".to_string()
+                                }
+                            }
+                        } else if self.struct_enums.contains_key(name) {
+                            match &**member {
+                                Expression::Call(callee, args, _) => {
+                                    let mut code: String = String::new();
+                                    if self.current_variable_struct_enum_variant.is_some() {
+                                        self.variable_struct_enum_variant.insert(self.current_variable_struct_enum_variant.clone().unwrap(), callee.clone());
+                                    }
+                                    code.push_str(&format!("{{__{}_Type_{}, .{} = {{ ", name, callee ,callee));
+                                    for arg in args.iter() {
+                                        code.push_str(&format!("{}, ", self.codegen_expression(arg)));
+                                    }
+                                    if args.len() > 0 {
+                                        code.pop();
+                                        code.pop();
+                                    }
+                                    code.push_str(" } }");
+                                    code
                                 }
                                 _ => {
                                     self.errors.push(Error::RuntimeError("Invalid enum member access".to_string(), expression.location().clone()));
@@ -2003,6 +2148,9 @@ impl Codegen {
             }
             Expression::Range(from, to, _) => {
                 format!("{}..{}", self.codegen_expression(from), self.codegen_expression(to))
+            }
+            Expression::Type(t, _) => {
+                self.codegen_type(t)
             }
             Expression::Empty => String::new(),
             Expression::Error(err) => {

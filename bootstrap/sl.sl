@@ -4,44 +4,26 @@ import "std/string.h"
 import "std/stdbool.h"
 import "std/ctype.h"
 
-external struct FILE end
+enum Statement
+    Variable(name: const char*, value: int)
+    Sample(x: int)
+end
 
-func read_to_string(path: const char*): const cstring
-    var file: FILE* = fopen(path, "r")
-    if file == null
-        fprintf(stderr, "Could not open file %s\n", path)
-        exit(1)
+func test()
+    var x: Statement = Statement.Variable(name: "test", value: 5)
+    var y: Statement = Statement.Sample(x: 5)
+
+    printf("%s = %d\n", x.name, x.value)
+    printf("Sample %d\n", y.x)
+end
+
+func main(argc: int, argv: const char**): int
+    if argc < 2
+        printf("Usage: %s <filename>\n", argv[0])
+        return 1
     end
 
-    fseek(file, 0, SEEK_END)
-    var size: usize = ftell(file)
-    rewind(file)
-
-    var buffer: cstring = malloc(size + 1)
-
-    if buffer == null
-        fprintf(stderr, "Could not allocate memory for file %s\n", path)
-        exit(1)
-    end
-
-    fread(buffer, size, 1, file)
-    fclose(file)
-    buffer[size] = '\0'
-    return buffer
-end
-
-enum Type : int
-    Int = 0
-    String = 1
-end
-
-struct Variable
-    name: const char*
-    var_type: Type
-    value: int
-end
-
-func main(argc: int, argv: const char**)
-    var file_name: const cstring = argv[1] // <--- BIG PROBLEM HERE, CAUSE: generics function calls and indexing clash with each other
-    var source: cstring = read_to_string(file_name)
+    test()
+    
+    return 0
 end

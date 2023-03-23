@@ -1,0 +1,326 @@
+[
+    Import(
+        "std/stdio.h",
+        TokenLocation {
+            start: 0,
+            end: 6,
+        },
+    ),
+    Import(
+        "std/stdlib.h",
+        TokenLocation {
+            start: 22,
+            end: 28,
+        },
+    ),
+    Import(
+        "std/string.h",
+        TokenLocation {
+            start: 45,
+            end: 51,
+        },
+    ),
+    Import(
+        "std/stdbool.h",
+        TokenLocation {
+            start: 68,
+            end: 74,
+        },
+    ),
+    Import(
+        "std/ctype.h",
+        TokenLocation {
+            start: 92,
+            end: 98,
+        },
+    ),
+    StructEnum(
+        "Statement",
+        [
+            (
+                "Variable",
+                [
+                    (
+                        "name",
+                        Const(
+                            Pointer(
+                                Char(
+                                    TokenLocation {
+                                        start: 157,
+                                        end: 161,
+                                    },
+                                ),
+                                TokenLocation {
+                                    start: 161,
+                                    end: 162,
+                                },
+                            ),
+                            TokenLocation {
+                                start: 151,
+                                end: 156,
+                            },
+                        ),
+                    ),
+                    (
+                        "value",
+                        Int(
+                            TokenLocation {
+                                start: 171,
+                                end: 174,
+                            },
+                        ),
+                    ),
+                ],
+            ),
+            (
+                "Sample",
+                [
+                    (
+                        "x",
+                        Int(
+                            TokenLocation {
+                                start: 191,
+                                end: 194,
+                            },
+                        ),
+                    ),
+                ],
+            ),
+        ],
+        TokenLocation {
+            start: 121,
+            end: 130,
+        },
+    ),
+    Function(
+        "test",
+        [],
+        Void(
+            TokenLocation {
+                start: 217,
+                end: 217,
+            },
+        ),
+        [
+            Variable(
+                "x",
+                Unknown(
+                    "Statement",
+                    TokenLocation {
+                        start: 228,
+                        end: 237,
+                    },
+                ),
+                Member(
+                    Identifier(
+                        "Statement",
+                        TokenLocation {
+                            start: 240,
+                            end: 249,
+                        },
+                    ),
+                    Call(
+                        "Variable",
+                        [
+                            NamedArgument(
+                                "name",
+                                String(
+                                    "test",
+                                    TokenLocation {
+                                        start: 265,
+                                        end: 271,
+                                    },
+                                ),
+                                TokenLocation {
+                                    start: 259,
+                                    end: 263,
+                                },
+                            ),
+                            NamedArgument(
+                                "value",
+                                Number(
+                                    5,
+                                    TokenLocation {
+                                        start: 280,
+                                        end: 281,
+                                    },
+                                ),
+                                TokenLocation {
+                                    start: 273,
+                                    end: 278,
+                                },
+                            ),
+                        ],
+                        TokenLocation {
+                            start: 258,
+                            end: 259,
+                        },
+                    ),
+                    TokenLocation {
+                        start: 249,
+                        end: 250,
+                    },
+                ),
+                TokenLocation {
+                    start: 225,
+                    end: 226,
+                },
+            ),
+        ],
+        TokenLocation {
+            start: 209,
+            end: 213,
+        },
+    ),
+    Function(
+        "main",
+        [
+            (
+                "argc",
+                Int(
+                    TokenLocation {
+                        start: 307,
+                        end: 310,
+                    },
+                ),
+            ),
+            (
+                "argv",
+                Pointer(
+                    Const(
+                        Pointer(
+                            Char(
+                                TokenLocation {
+                                    start: 324,
+                                    end: 328,
+                                },
+                            ),
+                            TokenLocation {
+                                start: 328,
+                                end: 329,
+                            },
+                        ),
+                        TokenLocation {
+                            start: 318,
+                            end: 323,
+                        },
+                    ),
+                    TokenLocation {
+                        start: 329,
+                        end: 330,
+                    },
+                ),
+            ),
+        ],
+        Int(
+            TokenLocation {
+                start: 333,
+                end: 336,
+            },
+        ),
+        [
+            If(
+                Binary(
+                    Less,
+                    Identifier(
+                        "argc",
+                        TokenLocation {
+                            start: 345,
+                            end: 349,
+                        },
+                    ),
+                    Number(
+                        2,
+                        TokenLocation {
+                            start: 352,
+                            end: 353,
+                        },
+                    ),
+                    TokenLocation {
+                        start: 350,
+                        end: 351,
+                    },
+                ),
+                [
+                    Expression(
+                        Call(
+                            "printf",
+                            [
+                                String(
+                                    "Usage: %s <filename>\\n",
+                                    TokenLocation {
+                                        start: 370,
+                                        end: 394,
+                                    },
+                                ),
+                                Index(
+                                    Identifier(
+                                        "argv",
+                                        TokenLocation {
+                                            start: 396,
+                                            end: 400,
+                                        },
+                                    ),
+                                    Number(
+                                        0,
+                                        TokenLocation {
+                                            start: 401,
+                                            end: 402,
+                                        },
+                                    ),
+                                    TokenLocation {
+                                        start: 396,
+                                        end: 400,
+                                    },
+                                ),
+                            ],
+                            TokenLocation {
+                                start: 369,
+                                end: 370,
+                            },
+                        ),
+                        TokenLocation {
+                            start: 406,
+                            end: 406,
+                        },
+                    ),
+                    Return(
+                        Number(
+                            1,
+                            TokenLocation {
+                                start: 421,
+                                end: 422,
+                            },
+                        ),
+                        TokenLocation {
+                            start: 421,
+                            end: 422,
+                        },
+                    ),
+                ],
+                [],
+                TokenLocation {
+                    start: 342,
+                    end: 344,
+                },
+            ),
+            Return(
+                Number(
+                    0,
+                    TokenLocation {
+                        start: 450,
+                        end: 451,
+                    },
+                ),
+                TokenLocation {
+                    start: 450,
+                    end: 451,
+                },
+            ),
+        ],
+        TokenLocation {
+            start: 296,
+            end: 300,
+        },
+    ),
+]
