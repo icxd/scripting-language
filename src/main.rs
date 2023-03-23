@@ -1073,6 +1073,9 @@ impl Parser {
             self.expect(TokenKind::CloseBracket);
             expression = Expression::Index(Box::new(expression), Box::new(index), location);
         }
+        if self.current().kind == TokenKind::OpenParen {
+            // TODO: parse generic function call
+        }
         expression
     }
     fn parse_member(&mut self) -> Expression {
@@ -1106,40 +1109,6 @@ impl Parser {
     fn parse_call(&mut self) -> Expression {
         let mut expression: Expression = self.parse_primary();
         while self.current().kind == TokenKind::OpenParen || self.current().kind == TokenKind::OpenBracket {
-            if self.current().kind == TokenKind::OpenBracket
-                    && (self.tokens[self.current + 2].kind == TokenKind::CloseBracket || self.tokens[self.current + 2].kind == TokenKind::Comma)
-            {
-                // Parse generic function call
-                let location: TokenLocation = self.current().location().clone();
-                self.expect(TokenKind::OpenBracket);
-                let mut types: Vec<Type> = vec![];
-                while self.current().kind != TokenKind::CloseBracket {
-                    let t: Type = self.parse_type();
-                    types.push(t);
-                    if self.current().kind == TokenKind::Comma {
-                        self.expect(TokenKind::Comma);
-                    }
-                }
-                self.expect(TokenKind::CloseBracket);
-                self.expect(TokenKind::OpenParen);
-                let mut args: Vec<Expression> = vec![];
-                while self.current().kind != TokenKind::CloseParen {
-                    let arg: Expression = self.parse_expression();
-                    args.push(arg);
-                    if self.current().kind == TokenKind::Comma {
-                        self.expect(TokenKind::Comma);
-                    }
-                }
-                self.expect(TokenKind::CloseParen);
-                let name = match expression {
-                    Expression::Identifier(name, _) => name,
-                    _ => {
-                        self.errors.push(Error::SyntaxError(format!("Expected identifier, found {:?}", expression), self.clone().current().location()));
-                        "".to_string()
-                    }
-                };
-                expression = Expression::GenericCall(name, types, args, location);
-            }
             let location: TokenLocation = self.current().location().clone();
             self.expect(TokenKind::OpenParen);
             let mut args: Vec<Expression> = vec![];

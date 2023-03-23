@@ -30,24 +30,18 @@ func read_to_string(path: const char*): const cstring
     return buffer
 end
 
-struct VariableDeclaration
-    name: const char*
-    value: const char*
+enum Type : int
+    Int = 0
+    String = 1
 end
 
-struct FunctionDeclaration
+struct Variable
     name: const char*
-    body: const char*
-end
-
-type StatementType = VariableDeclaration | FunctionDeclaration
-
-enum Statement : StatementType
-    Variable = VariableDeclaration(name: "", value: "")
-    Function = FunctionDeclaration(name: "", body: "")
+    var_type: Type
+    value: int
 end
 
 func main(argc: int, argv: const char**)
-    var file_name: const cstring = argv[1]
+    var file_name: const cstring = argv[1] // <--- BIG PROBLEM HERE, CAUSE: generics function calls and indexing clash with each other
     var source: cstring = read_to_string(file_name)
 end
