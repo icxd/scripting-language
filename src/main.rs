@@ -483,6 +483,7 @@ impl Lexer {
     Struct(String, Vec<(String, Type)>, TokenLocation),
     Enum(String, Type, Vec<(String, Expression, TokenLocation)>, TokenLocation),
     StructEnum(String, Vec<(String, Vec<(String, Type)>)>, TokenLocation),
+    JavaEnum(String, Vec<(String, Type)>, Vec<(String, Vec<Expression>)>, TokenLocation),
     TypeAlias(String, Vec<Type>, TokenLocation),
     Function(String, Vec<(String, Type)>, Type, Vec<Statement>, TokenLocation),
     StructFunction(String, String, Vec<(String, Type)>, Type, Vec<Statement>, TokenLocation),
@@ -490,6 +491,8 @@ impl Lexer {
     Constant(String, Type, Expression, TokenLocation),
     Return(Expression, TokenLocation),
     While(Expression, Vec<Statement>, TokenLocation),
+    Break(TokenLocation),
+    Continue(TokenLocation),
     If(Expression, Vec<Statement>, Vec<Statement>, TokenLocation),
     External(Box<Statement>, TokenLocation),
     Inline(Box<Statement>, TokenLocation),
@@ -505,6 +508,7 @@ impl Statement {
             Statement::Struct(_, _, location) => location.clone(),
             Statement::Enum(_, _, _, location) => location.clone(),
             Statement::StructEnum(_, _, location) => location.clone(),
+            Statement::JavaEnum(_, _, _, location) => location.clone(),
             Statement::TypeAlias(_, _, location) => location.clone(),
             Statement::Function(_, _, _, _, location) => location.clone(),
             Statement::StructFunction(_, _, _, _, _, location) => location.clone(),
@@ -512,6 +516,8 @@ impl Statement {
             Statement::Constant(_, _, _, location) => location.clone(),
             Statement::Return(_, location) => location.clone(),
             Statement::While(_, _, location) => location.clone(),
+            Statement::Break(location) => location.clone(),
+            Statement::Continue(location) => location.clone(),
             Statement::If(_, _, _, location) => location.clone(),
             Statement::External(_, location) => location.clone(),
             Statement::Inline(_, location) => location.clone(),
@@ -685,9 +691,23 @@ impl Parser {
             TokenKind::Return => self.parse_return(),
             TokenKind::Import => self.parse_import(),
             TokenKind::While => self.parse_while(),
+            TokenKind::Break => self.parse_break(),
+            TokenKind::Continue => self.parse_continue(),
             TokenKind::If => self.parse_if(),
             _ => Statement::Expression(self.parse_expression(), self.current().location().clone()),
         }
+    }
+    fn parse_break(&mut self) -> Statement {
+        let location: TokenLocation = self.current().location().clone();
+        self.expect(TokenKind::Break);
+        self.expect(TokenKind::Newline);
+        Statement::Break(location)
+    }
+    fn parse_continue(&mut self) -> Statement {
+        let location: TokenLocation = self.current().location().clone();
+        self.expect(TokenKind::Continue);
+        self.expect(TokenKind::Newline);
+        Statement::Continue(location)
     }
     fn parse_annotation(&mut self) -> Statement {
         self.expect(TokenKind::Annotation);
@@ -774,6 +794,42 @@ impl Parser {
         self.expect(TokenKind::Enum);
         let location: TokenLocation = self.current().location().clone();
         let name: String = self.expect(TokenKind::Identifier).value;
+        if self.current().kind == TokenKind::OpenParen {
+            self.expect(TokenKind::OpenParen);
+            let mut constructor: Vec<(String, Type)> = vec![];
+            while self.current().kind != TokenKind::CloseParen {
+                let field_name: String = self.expect(TokenKind::Identifier).value;
+                self.expect(TokenKind::Colon);
+                let field_type: Type = self.parse_type();
+                constructor.push((field_name, field_type));
+                if self.current().kind == TokenKind::Comma {
+                    self.expect(TokenKind::Comma);
+                }
+            }
+            self.expect(TokenKind::CloseParen);
+            self.expect(TokenKind::Newline);
+            let mut values: Vec<(String, Vec<Expression>)> = vec![];
+            while self.current().kind != TokenKind::End {
+                if self.current().kind == TokenKind::Newline {
+                    self.advance();
+                    continue;
+                }
+                let value_name: String = self.expect(TokenKind::Identifier).value;
+                self.expect(TokenKind::OpenParen);
+                let mut value_fields: Vec<Expression> = vec![];
+                while self.current().kind != TokenKind::CloseParen {
+                    value_fields.push(self.parse_expression());
+                    if self.current().kind == TokenKind::Comma {
+                        self.expect(TokenKind::Comma);
+                    }
+                }
+                self.expect(TokenKind::CloseParen);
+                self.expect(TokenKind::Newline);
+                values.push((value_name, value_fields));
+            }
+            self.expect(TokenKind::End);
+            return Statement::JavaEnum(name, constructor, values, location);
+        }
         if self.current().kind == TokenKind::Newline {
             self.expect(TokenKind::Newline);
             let mut values: Vec<(String, Vec<(String, Type)>)> = vec![];
@@ -1429,6 +1485,7 @@ impl Parser {
     struct_functions: HashMap<String, Vec<String>>,
     enums: Vec<String>,
     struct_enums: HashMap<String, Vec<String>>,
+    java_enums: Vec<String>,
     variable_struct_enum_variant: HashMap<String, String>,
     current_variable_struct_enum_variant: Option<String>,
     type_aliases: Vec<String>,
@@ -1449,6 +1506,7 @@ impl Codegen {
             struct_functions: HashMap::new(),
             enums: vec![],
             struct_enums: HashMap::new(),
+            java_enums: vec![],
             variable_struct_enum_variant: HashMap::new(),
             current_variable_struct_enum_variant: None,
             type_aliases: vec![],
@@ -1483,6 +1541,7 @@ impl Codegen {
             Statement::Struct(name, fields, _) => self.codegen_struct(name, fields),
             Statement::Enum(name, enum_type, variants, _) => self.codegen_enum(name, enum_type, variants),
             Statement::StructEnum(name, values, _) => self.codegen_struct_enum(name, values),
+            Statement::JavaEnum(name, constructor, values, _) => self.codegen_java_enum(name, constructor, values),
             Statement::TypeAlias(name, t, _) => self.codegen_type_alias(name, t),
             Statement::Function(name, args, return_type, body, _) => self.codegen_function(name, args, return_type, body),
             Statement::StructFunction(struct_name, name, args, return_type, body, _) => self.codegen_struct_function(struct_name, name, args, return_type, body),
@@ -1491,12 +1550,20 @@ impl Codegen {
             Statement::Return(value, _) => self.codegen_return(value),
             Statement::Import(path, _) => self.codegen_import(path),
             Statement::While(condition, body, _) => self.codegen_while(condition, body),
+            Statement::Break(_) => self.codegen_break(),
+            Statement::Continue(_) => self.codegen_continue(),
             Statement::If(condition, body, else_body, _) => self.codegen_if(condition, body, else_body),
             Statement::Expression(expression, _) => {
                 let expression_code: String = self.codegen_expression(expression);
                 format!("{};\n", expression_code)
             }
         }
+    }
+    fn codegen_break(&mut self) -> String {
+        "break;\n".to_string()
+    }
+    fn codegen_continue(&mut self) -> String {
+        "continue;\n".to_string()
     }
     fn codegen_generic(&mut self, statement: &Statement, type_parameters: Vec<(String, Option<Type>)>) -> String {
         let mut code: String = String::new();
@@ -1678,15 +1745,18 @@ impl Codegen {
         code
     }
     fn codegen_struct_enum(&mut self, name: &String, values: &Vec<(String, Vec<(String, Type)>)>) -> String {
+        let mut enum_values: Vec<String> = Vec::new();
+        for (variant_name, _) in values.iter() {
+            enum_values.push(variant_name.clone());
+        }
+        self.struct_enums.insert(name.clone(), enum_values);
         let mut code: String = String::new();
         code.push_str(&format!("enum __{}_Type {{", name));
         for (variant_name, _) in values.iter() {
             code.push_str(&format!("__{}_Type_{}, ", name, variant_name));
         }
         code.push_str("};\n");
-        let mut enum_values: Vec<String> = Vec::new();
         for (variant_name, variant_fields) in values.iter() {
-            enum_values.push(variant_name.clone());
             code.push_str(&format!("struct __{}_{} {{ ", name, variant_name));
             for (field_name, field_type) in variant_fields.iter() {
                 code.push_str(&format!("{} {}; ", self.codegen_type(field_type), field_name));
@@ -1701,7 +1771,32 @@ impl Codegen {
         }
         code.push_str(&format!("}};\n"));
         code.push_str(&format!("}};\n"));
-        self.struct_enums.insert(name.clone(), enum_values);
+        code
+    }
+    fn codegen_java_enum(&mut self, name: &String, constructor: &Vec<(String, Type)>, values: &Vec<(String, Vec<Expression>)>) -> String {
+        self.java_enums.push(name.clone());
+        let mut code: String = String::new();
+        code.push_str(&format!("struct {} {{\n", name));
+        for (field_name, field_type) in constructor.iter() {
+            code.push_str(&format!("{} {}; ", self.codegen_type(field_type), field_name));
+        }
+        code.push_str(&format!("enum {{\n"));
+        for (variant_name, _) in values.iter() {
+            code.push_str(&format!("{},\n", variant_name));
+        }
+        code.push_str(&format!("}} type;\n"));
+        code.push_str(&format!("}};\n"));
+
+        code.push_str(&format!("static struct {} __{}_values[] = {{\n", name, name));
+        for (variant_name, variant_values) in values.iter() {
+            code.push_str(&format!("[{}] = {{", variant_name));
+            for (_, value) in variant_values.iter().enumerate() {
+                code.push_str(&format!("{}, ", self.codegen_expression(value)));
+            }
+            code.push_str(&format!("{}", variant_name));
+            code.push_str(&format!("}},\n"));
+        }
+        code.push_str(&format!("}};\n"));
         code
     }
     fn codegen_type_alias(&mut self, name: &String, types: &Vec<Type>) -> String {
@@ -1869,6 +1964,8 @@ impl Codegen {
                     format!("enum {}", name)
                 } else if self.struct_enums.contains_key(name) {
                     format!("struct {}", name)
+                } else if self.java_enums.contains(name) {
+                    format!("struct {}", name)
                 } else if self.type_aliases.contains(name) {
                     name.clone()
                 } else if self.generic_type_names.contains(name) {
@@ -1969,8 +2066,10 @@ impl Codegen {
                                         if self.struct_enums.contains_key(_name) {
                                             let variant: String = self.variable_struct_enum_variant.get(name).unwrap().clone();
                                             format!("{}.{}.{}", self.codegen_expression(expression), variant, self.codegen_expression(member))
+                                        } else if self.java_enums.contains(_name) {
+                                            format!("{}.{}", self.codegen_expression(expression), self.codegen_expression(member))
                                         } else {
-                                            self.errors.push(Error::RuntimeError("Invalid member access".to_string(), expression.location().clone()));
+                                            self.errors.push(Error::RuntimeError("Invalid member access1".to_string(), expression.location().clone()));
                                             "".to_string()
                                         }
                                     }
@@ -2049,6 +2148,16 @@ impl Codegen {
                                     }
                                     code.push_str(" } }");
                                     code
+                                }
+                                _ => {
+                                    self.errors.push(Error::RuntimeError("Invalid enum member access".to_string(), expression.location().clone()));
+                                    "".to_string()
+                                }
+                            }
+                        } else if self.java_enums.contains(name) {
+                            match &**member {
+                                Expression::Identifier(member, _) => {
+                                    format!("__{}_values[{}]", name, member)
                                 }
                                 _ => {
                                     self.errors.push(Error::RuntimeError("Invalid enum member access".to_string(), expression.location().clone()));
